@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: voice_assistant_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: voice_assistant
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5434:5432"
+    volumes:
+      - voice_assistant_postgres_data:/var/lib/postgresql/data
+      - ./voice-assistant-database/schema/tables.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro
+      - ./voice-assistant-database/functions/functions.sql:/docker-entrypoint-initdb.d/02-functions.sql:ro
+      - ./voice-assistant-database/triggers/triggers.sql:/docker-entrypoint-initdb.d/03-triggers.sql:ro
+
+  api:
+    build:
+      context: ./voice-assistant-api
+      dockerfile: Dockerfile
+    container_name: voice_assistant_api
+    restart: always
+    env_file:
+      - ./voice-assistant-api/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres@db:5432/voice_assistant
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  webapp:
+    build:
+      context: ./voice-assistant-webapp
+      dockerfile: Dockerfile
+    container_name: voice_assistant_webapp
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+      - db
+
+volumes:
+  voice_assistant_postgres_data:
