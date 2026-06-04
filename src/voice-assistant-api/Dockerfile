@@ -1,6 +1,6 @@
-FROM python:3.11-slim
+FROM python:3.11-slim  #image 
 
-WORKDIR /app
+WORKDIR /app # working directory
 
 # Install system dependencies for postgres connectivity and compilations
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt . #copy
 
 RUN pip install --no-cache-dir -r requirements.txt
 

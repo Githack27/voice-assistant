@@ -11,6 +11,10 @@ services:
       - "5434:5432"
     volumes:
       - voice_assistant_postgres_data:/var/lib/postgresql/data
-
+  
+  api:
+    image: python:3.11-slim
+  web:
+    image: mock
 volumes:
   voice_assistant_postgres_data:
