@@ -1,145 +1,79 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 
-// Define mock data for call records
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface CallRecord {
   id: string;
+  vapiCallId: string | null;
   phone: string;
   email: string;
-  timestamp: Date; // date objects
-  duration: number; // in seconds
-  status: "answered" | "missed" | "needs-reply" | "replied";
+  timestamp: Date;
+  duration: number;
+  status: "answered" | "missed" | "needs-reply" | "replied" | "ongoing";
   summary: string;
   transcript: string;
   suggestedReply: string;
+  listenUrl: string | null;
+  recordingUrl: string | null;
 }
 
-// Generate relative dates for realistic filtering
-const now = new Date("2026-05-31T23:00:00Z");
-const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000);
-const daysAgo = (d: number) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000);
+interface ActiveCall {
+  vapiCallId: string;
+  callerPhone: string;
+  listenUrl: string | null;
+  controlUrl: string | null;
+  startedAt: string;
+  alertedAt?: number;
+}
 
-const MOCK_CALLS: CallRecord[] = [
-  {
-    id: "call-1",
-    phone: "+1 (206) 555-0192",
-    email: "sarah.jones@example.com",
-    timestamp: hoursAgo(2),
-    duration: 48,
-    status: "answered",
-    summary: "Inquiry about pricing and trial period options.",
-    transcript: "Agent: Hello, thank you for calling VoiceAI Hub support. How can I help you?\nCaller: Hi, I'm interested in your product. Can you tell me about the pricing plans and if there's a free trial?\nAgent: Yes, we offer a 14-day free trial on all plans. Our Starter plan starts at $29/month, and the Pro plan is $79/month.\nCaller: Great, thanks! I will sign up on the website.",
-    suggestedReply: "Hi Sarah, thank you for calling VoiceAI Hub. Here is the link to our pricing page and details about starting your 14-day free trial: https://voiceai.com/pricing. Please let us know if you have any questions!",
-  },
-  {
-    id: "call-2",
-    phone: "+1 (415) 555-0143",
-    email: "david.miller@example.com",
-    timestamp: hoursAgo(5),
-    duration: 0,
-    status: "missed",
-    summary: "Abandoned call before agent pickup.",
-    transcript: "[Caller hung up before the voice agent initialized]",
-    suggestedReply: "Hi David, we noticed we missed a call from you today. If you need any assistance regarding our AI Voice services, please reply here or call us back at +1 (855) 790-2486.",
-  },
-  {
-    id: "call-3",
-    phone: "+1 (650) 555-0122",
-    email: "robert.chen@example.com",
-    timestamp: hoursAgo(14),
-    duration: 112,
-    status: "needs-reply",
-    summary: "Requested a demo schedule for next Monday at 10 AM.",
-    transcript: "Agent: Hi, welcome to VoiceAI Hub. How can I assist you?\nCaller: Hi, I'd like to schedule a detailed product demo for our engineering team. Is next Monday at 10 AM PST available?\nAgent: I can request that for you. I will have our sales team follow up with a calendar invitation shortly.\nCaller: Perfect. Send it to robert.chen@example.com. Thanks.",
-    suggestedReply: "Hi Robert, following up on your call, we'd love to schedule a demo for your team next Monday at 10:00 AM PST. Please find our team calendar booking link here: https://calendly.com/voiceai-demo/meeting.",
-  },
-  {
-    id: "call-4",
-    phone: "+1 (212) 555-0188",
-    email: "support@techcorp.io",
-    timestamp: daysAgo(3),
-    duration: 94,
-    status: "answered",
-    summary: "Question about integrating PostgreSQL database storage.",
-    transcript: "Agent: VoiceAI Support, how can I help?\nCaller: Hello, does your assistant support storing caller memory in a custom PostgreSQL database instead of default vector clouds?\nAgent: Yes, we support custom database connections. You can configure your own PostgreSQL server, port, and schemas in the agent knowledge base configuration.\nCaller: Excellent, that's exactly what we need.",
-    suggestedReply: "Hello Support Team, thank you for calling. Regarding your query, custom PostgreSQL storage configuration guide is available here: https://docs.voiceai.com/postgres-kb. Let us know if you need database access credentials setup.",
-  },
-  {
-    id: "call-5",
-    phone: "+1 (305) 555-0111",
-    email: "info@floridaretail.com",
-    timestamp: daysAgo(12),
-    duration: 145,
-    status: "replied",
-    summary: "Detailed questions about custom FAQ triggers and categories.",
-    transcript: "Agent: Hello, how can I help you today?\nCaller: Can we add our own custom rules for standard responses to questions like store location or return policy?\nAgent: Absolutely. You can configure FAQ Registry responses with semantic matching rules directly in the hub dashboard.\nCaller: Good, thank you.",
-    suggestedReply: "Hi Florida Retail Team, here is a quick guide link to configure custom answers in your FAQ registry page: https://voiceai.com/dashboard/faq.",
-  },
-  {
-    id: "call-6",
-    phone: "+1 (617) 555-0155",
-    email: "alex@designstudio.co",
-    timestamp: daysAgo(25),
-    duration: 35,
-    status: "answered",
-    summary: "Checking if API access is included in the basic starter tier.",
-    transcript: "Agent: VoiceAI Hub, how can I help?\nCaller: Hi, is full developer API access included in the $29 starter tier?\nAgent: No, developer API access is only available on our Pro plan and Enterprise plan tiers.\nCaller: Okay, thank you.",
-    suggestedReply: "Hi Alex, developer API endpoints details are available for our Pro tier ($79/mo) and custom plans: https://voiceai.com/api-docs.",
-  },
-  {
-    id: "call-7",
-    phone: "+1 (713) 555-0167",
-    email: "billing@energycorp.com",
-    timestamp: daysAgo(42),
-    duration: 180,
-    status: "answered",
-    summary: "Invoiced amount clarification request.",
-    transcript: "Agent: Hello, billing department. How can I help?\nCaller: We received an invoice that seems to charge twice for prompt tokens. Can you double check?\nAgent: I see. I've flagged this call for manual invoice review by our billing manager.\nCaller: OK, I'll wait.",
-    suggestedReply: "Hello Energy Corp Billing Team, we have reviewed your prompt usage and adjusted invoice #2983. A credit has been applied to your account. Feel free to reach out if you notice any other anomalies.",
-  },
-  {
-    id: "call-8",
-    phone: "+1 (404) 555-0139",
-    email: "georgia.tech@edu.org",
-    timestamp: daysAgo(75),
-    duration: 62,
-    status: "answered",
-    summary: "Academic researchers asking for API tokens.",
-    transcript: "Caller: Hello, we are doing research on voice agents. Do you offer academic discounts?\nAgent: Yes, we provide up to 50% discount for validated academic institutions. I will send an email with the application instructions.\nCaller: Excellent, thank you very much.",
-    suggestedReply: "Hello researchers, here is the application form for our academic discount program: https://voiceai.com/academic-grant.",
-  }
-];
+interface VapiInfo {
+  phone_number?: string;
+  vapi_connected?: boolean;
+  assistant_model?: string;
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const POLL_INTERVAL_MS = 20000; // 20 seconds
 
-const mapApiCallToFrontend = (apiCall: any): CallRecord => {
-  const phone = apiCall.client?.phone_number || "+1 (Unknown Caller)";
-  const email = apiCall.client?.email || "info@clientcompany.com";
-  const timestamp = new Date(apiCall.start_time);
-  const duration = apiCall.duration_seconds || 0;
-  
-  let status: "answered" | "missed" | "needs-reply" | "replied" = "answered";
-  if (apiCall.status === "missed") status = "missed";
-  else if (apiCall.status === "needs-reply") status = "needs-reply";
-  else if (apiCall.status === "replied") status = "replied";
+// ─── Map raw VAPI API response to frontend CallRecord ────────────────────────
+const mapApiCallToFrontend = (item: any): CallRecord => {
+  const phone = item.phone || item.client?.phone_number || "+1 (Unknown Caller)";
+  const email = item.email || item.client?.email || "unknown@caller.com";
 
-  const summary = apiCall.summary || "Call completed.";
+  // Parse timestamp
+  let timestamp = new Date();
+  try {
+    if (item.startTime) timestamp = new Date(item.startTime);
+    else if (item.start_time) timestamp = new Date(item.start_time);
+  } catch (_) {}
 
+  const duration = item.duration ?? item.duration_seconds ?? 0;
+
+  let status: CallRecord["status"] = "answered";
+  if (item.status === "missed") status = "missed";
+  else if (item.status === "needs-reply") status = "needs-reply";
+  else if (item.status === "replied") status = "replied";
+  else if (item.status === "ongoing" || item.status === "in-progress") status = "ongoing";
+
+  const summary = item.summary || "Call completed.";
+
+  // Build transcript string from API transcript or array
   let transcript = "";
-  if (Array.isArray(apiCall.transcripts) && apiCall.transcripts.length > 0) {
-    transcript = apiCall.transcripts
-      .map((t: any) => `${t.speaker}: ${t.text}`)
-      .join("\n");
+  if (typeof item.transcript === "string" && item.transcript.trim()) {
+    transcript = item.transcript;
+  } else if (Array.isArray(item.transcripts) && item.transcripts.length > 0) {
+    transcript = item.transcripts.map((t: any) => `${t.speaker}: ${t.text}`).join("\n");
   } else {
     transcript = "[No dialogue transcript available]";
   }
 
-  const suggestedReply = `Hi, following up on your call regarding "${summary}". Please let us know if we can help you coordinate details.`;
+  const suggestedReply = `Hi, following up on your call regarding "${summary}". Please let us know if we can help.`;
 
   return {
-    id: String(apiCall.id),
+    id: String(item.id),
+    vapiCallId: item.vapiCallId || item.vapi_call_id || null,
     phone,
     email,
     timestamp,
@@ -148,73 +82,597 @@ const mapApiCallToFrontend = (apiCall: any): CallRecord => {
     summary,
     transcript,
     suggestedReply,
+    listenUrl: item.listenUrl || item.listen_url || null,
+    recordingUrl: item.recordingUrl || item.recording_url || null,
   };
 };
 
+// ─── Live Listen Modal (PCM audio via WebSocket) ──────────────────────────────
+function LiveListenModal({
+  call,
+  onClose,
+}: {
+  call: ActiveCall;
+  onClose: () => void;
+}) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<string[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Call duration timer
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((p) => p + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+  };
+
+  // Connect to VAPI listenUrl via WebSocket and play PCM audio
+  const startListening = useCallback(async () => {
+    if (!call.listenUrl) {
+      setError("No live audio stream URL available for this call.");
+      return;
+    }
+
+    try {
+      // Resume / create AudioContext after user gesture (browser autoplay policy)
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+          sampleRate: 16000,
+        });
+      }
+      const audioCtx = audioCtxRef.current;
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+
+      nextPlayTimeRef.current = audioCtx.currentTime;
+
+      const ws = new WebSocket(call.listenUrl);
+      ws.binaryType = "arraybuffer";
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setIsConnected(true);
+        setError(null);
+      };
+
+      ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          // Decode PCM s16le → Float32 for Web Audio API
+          const int16 = new Int16Array(event.data);
+          const float32 = new Float32Array(int16.length);
+          for (let i = 0; i < int16.length; i++) {
+            float32[i] = int16[i] / 32768.0;
+          }
+
+          const audioBuffer = audioCtx.createBuffer(1, float32.length, 16000);
+          audioBuffer.copyToChannel(float32, 0);
+
+          const source = audioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioCtx.destination);
+
+          const startAt = Math.max(nextPlayTimeRef.current, audioCtx.currentTime + 0.05);
+          source.start(startAt);
+          nextPlayTimeRef.current = startAt + audioBuffer.duration;
+        } else if (typeof event.data === "string") {
+          // Some VAPI streams send JSON transcript events
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.transcript) {
+              setTranscript((prev) => [...prev.slice(-20), msg.transcript]);
+            }
+          } catch (_) {}
+        }
+      };
+
+      ws.onerror = () => {
+        setError("Audio stream connection error. The call may have ended.");
+        setIsConnected(false);
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+      };
+    } catch (e: any) {
+      setError(`Failed to start audio: ${e.message}`);
+    }
+  }, [call.listenUrl]);
+
+  // Auto-connect when modal opens
+  useEffect(() => {
+    startListening();
+    return () => {
+      wsRef.current?.close();
+      audioCtxRef.current?.close();
+    };
+  }, []);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.75)",
+        backdropFilter: "blur(4px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        style={{
+          backgroundColor: "var(--bg-card)",
+          border: "1px solid var(--border-color)",
+          borderRadius: "12px",
+          padding: "28px",
+          width: "480px",
+          maxWidth: "95vw",
+          display: "flex",
+          flexDirection: "column",
+          gap: "20px",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div
+              style={{
+                width: "10px",
+                height: "10px",
+                borderRadius: "50%",
+                backgroundColor: isConnected ? "#10b981" : "#f59e0b",
+                boxShadow: isConnected ? "0 0 8px #10b981" : "0 0 8px #f59e0b",
+                animation: "pulse 1.5s infinite",
+              }}
+            />
+            <h2 style={{ fontSize: "17px", fontWeight: 700, color: "#fff" }}>
+              Live Call Monitor
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", color: "var(--text-secondary)", padding: "4px", fontSize: "20px" }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Caller info */}
+        <div
+          style={{
+            backgroundColor: "rgba(138,43,226,0.12)",
+            border: "1px solid var(--primary)",
+            borderRadius: "8px",
+            padding: "14px 16px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "4px" }}>
+              CALLER
+            </div>
+            <div style={{ fontSize: "18px", fontWeight: 700, color: "#fff" }}>
+              {call.callerPhone}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "4px" }}>
+              ELAPSED
+            </div>
+            <div style={{ fontSize: "18px", fontWeight: 700, color: "#10b981", fontFamily: "monospace" }}>
+              {formatTime(elapsed)}
+            </div>
+          </div>
+        </div>
+
+        {/* Connection status */}
+        <div
+          style={{
+            backgroundColor: "rgba(0,0,0,0.2)",
+            borderRadius: "8px",
+            padding: "12px 16px",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            border: `1px solid ${isConnected ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"}`,
+          }}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={isConnected ? "#10b981" : "#f59e0b"}
+            strokeWidth="2"
+          >
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+          </svg>
+          <span style={{ fontSize: "13px", color: isConnected ? "#10b981" : "#f59e0b", fontWeight: 600 }}>
+            {isConnected ? "Streaming live audio..." : "Connecting to audio stream..."}
+          </span>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div
+            style={{
+              backgroundColor: "rgba(239,68,68,0.1)",
+              border: "1px solid var(--accent-red)",
+              borderRadius: "8px",
+              padding: "12px 16px",
+              fontSize: "13px",
+              color: "#fca5a5",
+            }}
+          >
+            ⚠ {error}
+            {call.listenUrl && (
+              <button
+                onClick={startListening}
+                style={{
+                  marginTop: "8px",
+                  display: "block",
+                  backgroundColor: "var(--primary)",
+                  color: "#fff",
+                  fontSize: "12px",
+                  padding: "4px 10px",
+                }}
+              >
+                Retry Connection
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Live transcript feed */}
+        {transcript.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 600, textTransform: "uppercase" }}>
+              Live Transcript
+            </div>
+            <div
+              style={{
+                backgroundColor: "var(--bg-input)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "6px",
+                padding: "10px 12px",
+                fontSize: "12px",
+                fontFamily: "monospace",
+                color: "var(--text-primary)",
+                lineHeight: "1.6",
+                maxHeight: "120px",
+                overflowY: "auto",
+              }}
+            >
+              {transcript.map((t, i) => (
+                <div key={i}>{t}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* No listenUrl fallback */}
+        {!call.listenUrl && (
+          <div
+            style={{
+              textAlign: "center",
+              color: "var(--text-secondary)",
+              fontSize: "13px",
+              padding: "16px",
+              backgroundColor: "rgba(0,0,0,0.2)",
+              borderRadius: "8px",
+              lineHeight: "1.6",
+            }}
+          >
+            Live audio is available only for <strong style={{ color: "#fff" }}>actively ringing</strong> calls.
+            <br />
+            The call may have ended or the stream URL has expired.
+          </div>
+        )}
+
+        {/* Close */}
+        <button
+          onClick={onClose}
+          style={{
+            backgroundColor: "var(--bg-input)",
+            border: "1px solid var(--border-color)",
+            color: "var(--text-primary)",
+            fontSize: "13px",
+            fontWeight: 600,
+            padding: "10px",
+          }}
+        >
+          Close Monitor
+        </button>
+      </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.6; transform: scale(1.15); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Incoming Call Alert Banner ───────────────────────────────────────────────
+function IncomingCallBanner({
+  activeCall,
+  onListen,
+  onDismiss,
+}: {
+  activeCall: ActiveCall;
+  onListen: () => void;
+  onDismiss: () => void;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((p) => p + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: "20px",
+        right: "20px",
+        zIndex: 999,
+        width: "360px",
+        backgroundColor: "var(--bg-card)",
+        border: "2px solid #10b981",
+        borderRadius: "12px",
+        padding: "16px 20px",
+        boxShadow: "0 8px 32px rgba(16,185,129,0.25)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        animation: "slideInRight 0.3s ease",
+      }}
+    >
+      {/* Pulsing ring icon + title */}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{ position: "relative", width: "36px", height: "36px", flexShrink: 0 }}>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: "50%",
+              backgroundColor: "rgba(16,185,129,0.15)",
+              animation: "ringPulse 1.2s ease-out infinite",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: "4px",
+              borderRadius: "50%",
+              backgroundColor: "#10b981",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+            </svg>
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: "12px", color: "#10b981", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            Incoming Call
+          </div>
+          <div style={{ fontSize: "15px", fontWeight: 700, color: "#fff" }}>
+            {activeCall.callerPhone}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", fontFamily: "monospace", fontSize: "14px", color: "#10b981", fontWeight: 700 }}>
+          {formatTime(elapsed)}
+        </div>
+      </div>
+
+      <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+        VAPI AI Agent is handling this call now.
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: "8px" }}>
+        <button
+          onClick={onListen}
+          style={{
+            flex: 1,
+            backgroundColor: "#10b981",
+            color: "#fff",
+            fontSize: "12px",
+            fontWeight: 700,
+            padding: "8px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+          }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+          </svg>
+          Listen Live
+        </button>
+        <button
+          onClick={onDismiss}
+          style={{
+            backgroundColor: "var(--bg-input)",
+            border: "1px solid var(--border-color)",
+            color: "var(--text-secondary)",
+            fontSize: "12px",
+            padding: "8px 12px",
+          }}
+        >
+          Dismiss
+        </button>
+      </div>
+
+      <style>{`
+        @keyframes ringPulse {
+          0% { transform: scale(1); opacity: 0.8; }
+          100% { transform: scale(2.2); opacity: 0; }
+        }
+        @keyframes slideInRight {
+          from { opacity: 0; transform: translateX(60px); }
+          to   { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [mounted, setMounted] = useState(false);
-  const [systemConfig, setSystemConfig] = useState({
-    twilio_phone_number: "+1 (855) 790-2486",
-    vapi_connected: false,
-  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [vapiInfo, setVapiInfo] = useState<VapiInfo>({ vapi_connected: false });
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Active incoming call (SSE-driven)
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+  const [listeningCall, setListeningCall] = useState<ActiveCall | null>(null);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const sseRef = useRef<EventSource | null>(null);
 
-  useEffect(() => {
-    const fetchCalls = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/calls`);
-        if (!res.ok) throw new Error("Backend response error");
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          const mapped = data.map((item: any) => mapApiCallToFrontend(item));
-          setCalls(mapped.length > 0 ? mapped : MOCK_CALLS);
-        } else {
-          setCalls(MOCK_CALLS);
-        }
-      } catch (err) {
-        console.warn("API server offline, falling back to mock calls:", err);
-        setCalls(MOCK_CALLS);
-      }
-    };
-
-    const fetchSystemConfig = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/settings/public/config`);
-        if (res.ok) {
-          const data = await res.json();
-          setSystemConfig({
-            twilio_phone_number: data.twilio_phone_number,
-            vapi_connected: !!data.vapi_connected,
-          });
-        }
-      } catch (err) {
-        console.warn("Failed to fetch system config:", err);
-      }
-    };
-
-    if (mounted) {
-      fetchCalls();
-      fetchSystemConfig();
-    }
-  }, [mounted]);
-  
-  // States for search and filtering
-  const [timeFilter, setTimeFilter] = useState<string>("24h"); // "24h" | "1m" | "3m" | "all"
-  const [statusFilter, setStatusFilter] = useState<string>("all"); // "all" | "answered" | "missed" | "needs-reply" | "replied"
+  // Table state
+  const [timeFilter, setTimeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
-
-  // States for sorting
   const [sortColumn, setSortColumn] = useState<"timestamp" | "duration" | "phone">("timestamp");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-
-  // Expanded call row ID
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+  const pollRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Toggle sorting
+  useEffect(() => { setMounted(true); }, []);
+
+  // ── Fetch real calls from VAPI API (via backend) ──────────────────────────
+  const fetchCalls = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/vapi/calls?limit=50`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setCalls(data.map(mapApiCallToFrontend));
+      }
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.warn("VAPI calls fetch failed:", err);
+      // Fallback: try the local DB endpoint
+      try {
+        const r2 = await fetch(`${API_URL}/api/calls`);
+        if (r2.ok) {
+          const d2 = await r2.json();
+          if (Array.isArray(d2) && d2.length > 0) {
+            setCalls(d2.map(mapApiCallToFrontend));
+            setLastUpdated(new Date());
+          }
+        }
+      } catch (_) {}
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // ── Fetch VAPI phone/assistant info for header ────────────────────────────
+  const fetchVapiInfo = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/settings/public/vapi-info`);
+      if (res.ok) {
+        const data = await res.json();
+        setVapiInfo(data);
+      }
+    } catch (_) {
+      // Fallback to basic config
+      try {
+        const r2 = await fetch(`${API_URL}/api/settings/public/config`);
+        if (r2.ok) {
+          const d2 = await r2.json();
+          setVapiInfo({ vapi_connected: d2.vapi_connected });
+        }
+      } catch (_) {}
+    }
+  }, []);
+
+  // ── SSE: Connect to live incoming-call stream ─────────────────────────────
+  const connectSSE = useCallback(() => {
+    if (sseRef.current) sseRef.current.close();
+    const es = new EventSource(`${API_URL}/api/live/incoming-calls`);
+    sseRef.current = es;
+
+    es.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        if (event.type === "call-started" && !dismissedIds.has(event.vapiCallId)) {
+          setActiveCall({
+            vapiCallId: event.vapiCallId,
+            callerPhone: event.callerPhone || "Unknown Caller",
+            listenUrl: event.listenUrl || null,
+            controlUrl: event.controlUrl || null,
+            startedAt: event.startedAt,
+          });
+          // Also refresh call list immediately
+          fetchCalls();
+        } else if (event.type === "call-ended") {
+          setActiveCall((prev) => prev?.vapiCallId === event.vapiCallId ? null : prev);
+          setListeningCall((prev) => prev?.vapiCallId === event.vapiCallId ? null : prev);
+          // Refresh dashboard
+          setTimeout(() => fetchCalls(), 3000);
+        }
+      } catch (_) {}
+    };
+
+    es.onerror = () => {
+      // Reconnect after 5s on error
+      setTimeout(() => connectSSE(), 5000);
+    };
+  }, [dismissedIds, fetchCalls]);
+
+  // ── Initialize on mount ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mounted) return;
+
+    // Initial data load
+    fetchCalls();
+    fetchVapiInfo();
+
+    // 20-second polling
+    pollRef.current = setInterval(() => {
+      fetchCalls();
+    }, POLL_INTERVAL_MS);
+
+    // SSE for live call alerts
+    connectSSE();
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (sseRef.current) sseRef.current.close();
+    };
+  }, [mounted]);
+
+  // Sorting
   const handleSort = (column: "timestamp" | "duration" | "phone") => {
     if (sortColumn === column) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
@@ -224,536 +682,581 @@ export default function Dashboard() {
     }
   };
 
-  // Filtered and sorted call list
+  const now = new Date();
+
+  // Filtered + sorted calls
   const processedCalls = useMemo(() => {
     return calls
       .filter((call) => {
-        // 1. Time range filter
         const timeDiff = now.getTime() - call.timestamp.getTime();
-        const oneDay = 24 * 60 * 60 * 1000;
-        const oneMonth = 30 * 24 * 60 * 60 * 1000;
-        const threeMonths = 90 * 24 * 60 * 60 * 1000;
+        const oneDay = 86400000;
+        const oneMonth = 30 * oneDay;
+        const threeMonths = 90 * oneDay;
 
         if (timeFilter === "24h" && timeDiff > oneDay) return false;
         if (timeFilter === "1m" && timeDiff > oneMonth) return false;
         if (timeFilter === "3m" && timeDiff > threeMonths) return false;
-
-        // 2. Status filter
         if (statusFilter !== "all" && call.status !== statusFilter) return false;
 
-        // 3. Text search
-        if (searchQuery.trim() !== "") {
+        if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
-          const matchesPhone = call.phone.toLowerCase().includes(q);
-          const matchesSummary = call.summary.toLowerCase().includes(q);
-          const matchesTranscript = call.transcript.toLowerCase().includes(q);
-          return matchesPhone || matchesSummary || matchesTranscript;
+          return (
+            call.phone.toLowerCase().includes(q) ||
+            call.summary.toLowerCase().includes(q) ||
+            call.transcript.toLowerCase().includes(q)
+          );
         }
-
         return true;
       })
       .sort((a, b) => {
-        // 4. Sorting logic
-        let comparison = 0;
-        if (sortColumn === "timestamp") {
-          comparison = a.timestamp.getTime() - b.timestamp.getTime();
-        } else if (sortColumn === "duration") {
-          comparison = a.duration - b.duration;
-        } else if (sortColumn === "phone") {
-          comparison = a.phone.localeCompare(b.phone);
-        }
-        return sortDirection === "asc" ? comparison : -comparison;
+        let cmp = 0;
+        if (sortColumn === "timestamp") cmp = a.timestamp.getTime() - b.timestamp.getTime();
+        else if (sortColumn === "duration") cmp = a.duration - b.duration;
+        else if (sortColumn === "phone") cmp = a.phone.localeCompare(b.phone);
+        return sortDirection === "asc" ? cmp : -cmp;
       });
-  }, [calls, timeFilter, statusFilter, searchQuery, sortColumn, sortDirection]);
+  }, [calls, timeFilter, statusFilter, searchQuery, sortColumn, sortDirection, now]);
 
-  // Statistics calculation based on current timeFilter
+  // Stats
   const stats = useMemo(() => {
-    const timeFiltered = calls.filter((call) => {
+    const filtered = calls.filter((call) => {
       const timeDiff = now.getTime() - call.timestamp.getTime();
-      const oneDay = 24 * 60 * 60 * 1000;
-      const oneMonth = 30 * 24 * 60 * 60 * 1000;
-      const threeMonths = 90 * 24 * 60 * 60 * 1000;
-
-      if (timeFilter === "24h" && timeDiff > oneDay) return false;
-      if (timeFilter === "1m" && timeDiff > oneMonth) return false;
-      if (timeFilter === "3m" && timeDiff > threeMonths) return false;
+      if (timeFilter === "24h" && timeDiff > 86400000) return false;
+      if (timeFilter === "1m" && timeDiff > 30 * 86400000) return false;
+      if (timeFilter === "3m" && timeDiff > 90 * 86400000) return false;
       return true;
     });
+    return {
+      total: filtered.length,
+      answered: filtered.filter((c) => c.status === "answered" || c.status === "replied").length,
+      missed: filtered.filter((c) => c.status === "missed").length,
+      needsReply: filtered.filter((c) => c.status === "needs-reply").length,
+      ongoing: filtered.filter((c) => c.status === "ongoing").length,
+    };
+  }, [calls, timeFilter, now]);
 
-    const total = timeFiltered.length;
-    const answered = timeFiltered.filter((c) => c.status === "answered" || c.status === "replied").length;
-    const missed = timeFiltered.filter((c) => c.status === "missed").length;
-    const needsReply = timeFiltered.filter((c) => c.status === "needs-reply").length;
-
-    return { total, answered, missed, needsReply };
-  }, [calls, timeFilter]);
-
-  const toggleRow = (id: string) => {
-    setExpandedCallId((prev) => (prev === id ? null : id));
+  const formatDuration = (seconds: number) => {
+    if (seconds === 0) return "--";
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
   };
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
-      case "answered":
-        return "badge badge-answered";
-      case "missed":
-        return "badge badge-missed";
-      case "replied":
-        return "badge badge-replied";
-      case "needs-reply":
-        return "badge badge-needs-reply";
-      default:
-        return "badge";
+      case "answered": return "badge badge-answered";
+      case "missed": return "badge badge-missed";
+      case "replied": return "badge badge-replied";
+      case "needs-reply": return "badge badge-needs-reply";
+      case "ongoing": return "badge badge-ongoing";
+      default: return "badge";
     }
   };
 
-  const formatDuration = (seconds: number) => {
-    if (seconds === 0) return "--";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-  };
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      {/* Page Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <h1 style={{ fontSize: "24px", fontWeight: 700, color: "#ffffff", marginBottom: "4px" }}>
-            Dashboard Overview
-          </h1>
-          <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
-            Monitor voice assistant line & incoming customer call records.
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "12px" }}>
-          <div
-            style={{
-              backgroundColor: "var(--bg-card)",
-              border: "1px solid var(--border-color)",
-              padding: "10px 16px",
-              borderRadius: "var(--radius)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-            }}
-          >
-            <span style={{ fontSize: "11px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 600 }}>
-              Configured Voice Number
-            </span>
-            <span style={{ fontSize: "16px", fontWeight: 700, color: "var(--accent)" }}>
-              {systemConfig.twilio_phone_number}
-            </span>
-          </div>
-          <div
-            style={{
-              backgroundColor: "var(--bg-card)",
-              border: "1px solid var(--border-color)",
-              padding: "10px 16px",
-              borderRadius: "var(--radius)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-            }}
-          >
-            <span style={{ fontSize: "11px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 600 }}>
-              Vapi Connection
-            </span>
-            <span style={{ fontSize: "16px", fontWeight: 700, color: systemConfig.vapi_connected ? "#10b981" : "var(--accent-red)", display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: systemConfig.vapi_connected ? "#10b981" : "var(--accent-red)" }} />
-              {systemConfig.vapi_connected ? "Connected" : "Disconnected"}
-            </span>
-          </div>
-        </div>
-      </div>
+    <>
+      {/* ── Live Incoming Call Banner ── */}
+      {activeCall && !dismissedIds.has(activeCall.vapiCallId) && (
+        <IncomingCallBanner
+          activeCall={activeCall}
+          onListen={() => setListeningCall(activeCall)}
+          onDismiss={() => {
+            setDismissedIds((prev) => new Set([...prev, activeCall.vapiCallId]));
+            setActiveCall(null);
+          }}
+        />
+      )}
 
-      {/* Metrics Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-        <div style={{ backgroundColor: "var(--bg-card)", padding: "16px", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }}>
-          <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 500 }}>Total Inbound Calls</span>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "#ffffff", marginTop: "8px" }}>{stats.total}</div>
-        </div>
-        <div style={{ backgroundColor: "var(--bg-card)", padding: "16px", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }}>
-          <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 500 }}>Answered / Resolved</span>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "#ffffff", marginTop: "8px" }}>{stats.answered}</div>
-        </div>
-        <div style={{ backgroundColor: "var(--bg-card)", padding: "16px", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }}>
-          <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 500 }}>Missed Calls</span>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--accent-red)", marginTop: "8px" }}>{stats.missed}</div>
-        </div>
-        <div style={{ backgroundColor: "var(--bg-card)", padding: "16px", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }}>
-          <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 500 }}>Needs Follow-up</span>
-          <div style={{ fontSize: "28px", fontWeight: 700, color: "var(--accent)", marginTop: "8px" }}>{stats.needsReply}</div>
-        </div>
-      </div>
+      {/* ── Live Listen Modal ── */}
+      {listeningCall && (
+        <LiveListenModal call={listeningCall} onClose={() => setListeningCall(null)} />
+      )}
 
-      {/* Filters & Control Bar */}
-      <div
-        style={{
-          backgroundColor: "var(--bg-card)",
-          border: "1px solid var(--border-color)",
-          padding: "16px",
-          borderRadius: "var(--radius)",
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "16px",
-        }}
-      >
-        {/* Left Side: Filter Options */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px" }}>
-          {/* Time Filter */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <label style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>Time Period</label>
-            <div style={{ display: "flex", backgroundColor: "var(--bg-input)", borderRadius: "var(--radius)", padding: "2px", border: "1px solid var(--border-color)" }}>
-              <button
-                onClick={() => setTimeFilter("24h")}
-                style={{
-                  background: timeFilter === "24h" ? "var(--primary)" : "none",
-                  padding: "6px 12px",
-                  fontSize: "12px",
-                  borderRadius: "calc(var(--radius) - 2px)",
-                  fontWeight: timeFilter === "24h" ? 600 : 400,
-                  color: "#ffffff",
-                }}
-              >
-                24 Hours
-              </button>
-              <button
-                onClick={() => setTimeFilter("1m")}
-                style={{
-                  background: timeFilter === "1m" ? "var(--primary)" : "none",
-                  padding: "6px 12px",
-                  fontSize: "12px",
-                  borderRadius: "calc(var(--radius) - 2px)",
-                  fontWeight: timeFilter === "1m" ? 600 : 400,
-                  color: "#ffffff",
-                }}
-              >
-                1 Month
-              </button>
-              <button
-                onClick={() => setTimeFilter("3m")}
-                style={{
-                  background: timeFilter === "3m" ? "var(--primary)" : "none",
-                  padding: "6px 12px",
-                  fontSize: "12px",
-                  borderRadius: "calc(var(--radius) - 2px)",
-                  fontWeight: timeFilter === "3m" ? 600 : 400,
-                  color: "#ffffff",
-                }}
-              >
-                3 Months
-              </button>
-              <button
-                onClick={() => setTimeFilter("all")}
-                style={{
-                  background: timeFilter === "all" ? "var(--primary)" : "none",
-                  padding: "6px 12px",
-                  fontSize: "12px",
-                  borderRadius: "calc(var(--radius) - 2px)",
-                  fontWeight: timeFilter === "all" ? 600 : 400,
-                  color: "#ffffff",
-                }}
-              >
-                All Time
-              </button>
-            </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+        {/* ── Page Header ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
+          <div>
+            <h1 style={{ fontSize: "24px", fontWeight: 700, color: "#ffffff", marginBottom: "4px" }}>
+              Dashboard Overview
+            </h1>
+            <p style={{ fontSize: "14px", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "8px" }}>
+              Monitor VAPI voice assistant line &amp; incoming customer call records.
+              {lastUpdated && mounted && (
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  · Last updated {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </p>
           </div>
 
-          {/* Status Filter */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <label style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>Call Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+          {/* Status cards */}
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+            {/* VAPI Phone Number */}
+            <div
               style={{
-                height: "36px",
-                borderColor: "var(--border-color)",
-                paddingRight: "24px",
+                backgroundColor: "var(--bg-card)",
+                border: "1px solid var(--border-color)",
+                padding: "10px 16px",
+                borderRadius: "var(--radius)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
               }}
             >
-              <option value="all">All Statuses</option>
-              <option value="answered">Answered</option>
-              <option value="missed">Missed</option>
-              <option value="needs-reply">Needs Reply</option>
-              <option value="replied">Replied</option>
-            </select>
-          </div>
-        </div>
+              <span style={{ fontSize: "11px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 600 }}>
+                VAPI Phone Number
+              </span>
+              <span style={{ fontSize: "15px", fontWeight: 700, color: "var(--accent)" }}>
+                {vapiInfo.phone_number || "Loading..."}
+              </span>
+            </div>
 
-        {/* Right Side: Search */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%", maxWidth: "300px" }}>
-          <label style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>Search records</label>
-          <div style={{ position: "relative" }}>
-            <input
-              type="text"
-              placeholder="Search phone, transcripts..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+            {/* VAPI Connection Status */}
+            <div
               style={{
-                width: "100%",
-                paddingRight: "36px",
-                height: "36px",
+                backgroundColor: "var(--bg-card)",
+                border: "1px solid var(--border-color)",
+                padding: "10px 16px",
+                borderRadius: "var(--radius)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
               }}
-            />
-            <div style={{ position: "absolute", right: "12px", top: "10px", color: "var(--text-secondary)" }}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
+            >
+              <span style={{ fontSize: "11px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 600 }}>
+                VAPI Status
+              </span>
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 700,
+                  color: vapiInfo.vapi_connected ? "#10b981" : "var(--accent-red)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <span
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    backgroundColor: vapiInfo.vapi_connected ? "#10b981" : "var(--accent-red)",
+                    boxShadow: vapiInfo.vapi_connected ? "0 0 6px #10b981" : undefined,
+                  }}
+                />
+                {vapiInfo.vapi_connected ? "Connected" : "Disconnected"}
+              </span>
+            </div>
+
+            {/* Model badge */}
+            <div
+              style={{
+                backgroundColor: "var(--bg-card)",
+                border: "1px solid var(--border-color)",
+                padding: "10px 16px",
+                borderRadius: "var(--radius)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+              }}
+            >
+              <span style={{ fontSize: "11px", color: "var(--text-secondary)", textTransform: "uppercase", fontWeight: 600 }}>
+                AI Model
+              </span>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: "#c084fc" }}>
+                Claude Haiku 4.5
+              </span>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Calls Table Container */}
-      <div
-        style={{
-          backgroundColor: "var(--bg-card)",
-          border: "1px solid var(--border-color)",
-          borderRadius: "var(--radius)",
-          overflow: "hidden",
-        }}
-      >
-        <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid var(--border-color)", backgroundColor: "rgba(0,0,0,0.1)" }}>
-              <th
-                onClick={() => handleSort("timestamp")}
-                style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", userSelect: "none" }}
+        {/* ── Stats Row ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "16px" }}>
+          {[
+            { label: "Total Calls", value: stats.total, color: "#ffffff" },
+            { label: "Answered", value: stats.answered, color: "#38bdf8" },
+            { label: "Missed", value: stats.missed, color: "var(--accent-red)" },
+            { label: "Needs Follow-up", value: stats.needsReply, color: "var(--accent)" },
+            { label: "Live / Ongoing", value: stats.ongoing, color: "#10b981" },
+          ].map((s) => (
+            <div
+              key={s.label}
+              style={{ backgroundColor: "var(--bg-card)", padding: "16px", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }}
+            >
+              <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 500 }}>{s.label}</span>
+              <div style={{ fontSize: "28px", fontWeight: 700, color: s.color, marginTop: "8px" }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Filters ── */}
+        <div
+          style={{
+            backgroundColor: "var(--bg-card)",
+            border: "1px solid var(--border-color)",
+            padding: "16px",
+            borderRadius: "var(--radius)",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "16px",
+          }}
+        >
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "16px" }}>
+            {/* Time filter */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>Time Period</label>
+              <div style={{ display: "flex", backgroundColor: "var(--bg-input)", borderRadius: "var(--radius)", padding: "2px", border: "1px solid var(--border-color)" }}>
+                {[
+                  { key: "24h", label: "24 Hours" },
+                  { key: "1m", label: "1 Month" },
+                  { key: "3m", label: "3 Months" },
+                  { key: "all", label: "All Time" },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setTimeFilter(f.key)}
+                    style={{
+                      background: timeFilter === f.key ? "var(--primary)" : "none",
+                      padding: "6px 12px",
+                      fontSize: "12px",
+                      borderRadius: "calc(var(--radius) - 2px)",
+                      fontWeight: timeFilter === f.key ? 600 : 400,
+                      color: "#ffffff",
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Status filter */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>Call Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                style={{ height: "36px", paddingRight: "24px", borderColor: "var(--border-color)" }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  Date & Time
-                  {sortColumn === "timestamp" && (
-                    <span>{sortDirection === "asc" ? "▲" : "▼"}</span>
-                  )}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort("phone")}
-                style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", userSelect: "none" }}
+                <option value="all">All Statuses</option>
+                <option value="ongoing">Live / Ongoing</option>
+                <option value="answered">Answered</option>
+                <option value="missed">Missed</option>
+                <option value="needs-reply">Needs Reply</option>
+                <option value="replied">Replied</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Search + refresh */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label style={{ fontSize: "12px", color: "var(--text-secondary)", fontWeight: 500 }}>Search records</label>
+              <button
+                onClick={fetchCalls}
+                title="Refresh now"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-secondary)",
+                  padding: "2px",
+                  fontSize: "11px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  Caller Number
-                  {sortColumn === "phone" && (
-                    <span>{sortDirection === "asc" ? "▲" : "▼"}</span>
-                  )}
-                </div>
-              </th>
-              <th
-                onClick={() => handleSort("duration")}
-                style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", userSelect: "none" }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  Duration
-                  {sortColumn === "duration" && (
-                    <span>{sortDirection === "asc" ? "▲" : "▼"}</span>
-                  )}
-                </div>
-              </th>
-              <th style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>
-                Status
-              </th>
-              <th style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>
-                Summary Description
-              </th>
-              <th style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", textAlign: "right" }}>
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {processedCalls.length === 0 ? (
-              <tr>
-                <td colSpan={6} style={{ padding: "40px", textTransform: "none", textAlign: "center", color: "var(--text-secondary)" }}>
-                  No call records found matching the active filters.
-                </td>
-              </tr>
-            ) : (
-              processedCalls.map((call) => {
-                const isExpanded = expandedCallId === call.id;
-                return (
-                  <React.Fragment key={call.id}>
-                    <tr
-                      onClick={() => toggleRow(call.id)}
-                      style={{
-                        borderBottom: isExpanded ? "none" : "1px solid var(--border-color)",
-                        cursor: "pointer",
-                        backgroundColor: isExpanded ? "rgba(255,255,255,0.02)" : "transparent",
-                      }}
-                      className="hover-row"
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                Refresh
+              </button>
+            </div>
+            <div style={{ position: "relative", width: "280px" }}>
+              <input
+                type="text"
+                placeholder="Search phone, transcripts..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ width: "100%", paddingRight: "36px", height: "36px" }}
+              />
+              <div style={{ position: "absolute", right: "12px", top: "10px", color: "var(--text-secondary)" }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Calls Table ── */}
+        <div
+          style={{
+            backgroundColor: "var(--bg-card)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "var(--radius)",
+            overflow: "hidden",
+          }}
+        >
+          {isLoading ? (
+            <div style={{ padding: "60px", textAlign: "center", color: "var(--text-secondary)", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+              <div style={{ width: "32px", height: "32px", border: "3px solid var(--border-color)", borderTopColor: "var(--primary)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+              <span>Loading calls from VAPI...</span>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border-color)", backgroundColor: "rgba(0,0,0,0.1)" }}>
+                  {[
+                    { key: "timestamp", label: "Date & Time" },
+                    { key: "phone", label: "Caller Number" },
+                    { key: "duration", label: "Duration" },
+                  ].map((col) => (
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key as any)}
+                      style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", cursor: "pointer", userSelect: "none" }}
                     >
-                      <td style={{ padding: "14px 16px", fontSize: "14px" }}>
-                        {mounted
-                          ? call.timestamp.toLocaleString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : ""}
-                      </td>
-                      <td style={{ padding: "14px 16px", fontSize: "14px", fontWeight: 600 }}>
-                        {call.phone}
-                      </td>
-                      <td style={{ padding: "14px 16px", fontSize: "14px" }}>
-                        {formatDuration(call.duration)}
-                      </td>
-                      <td style={{ padding: "14px 16px" }}>
-                        <span className={getStatusBadgeClass(call.status)}>
-                          {call.status.replace("-", " ")}
-                        </span>
-                      </td>
-                      <td
-                        style={{
-                          padding: "14px 16px",
-                          fontSize: "14px",
-                          color: "var(--text-secondary)",
-                          maxWidth: "320px",
-                          whiteSpace: "nowrap",
-                          textOverflow: "ellipsis",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {call.summary}
-                      </td>
-                      <td
-                        style={{
-                          padding: "14px 16px",
-                          fontSize: "14px",
-                          textAlign: "right",
-                        }}
-                        onClick={(e) => e.stopPropagation()} // Prevent expansion when clicking specific action links
-                      >
-                        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-                          <Link
-                            href={`/email?to=${encodeURIComponent(call.email)}&suggested=${encodeURIComponent(call.suggestedReply)}`}
-                            style={{
-                              fontSize: "12px",
-                              backgroundColor: "var(--bg-input)",
-                              border: "1px solid var(--border-color)",
-                              padding: "4px 8px",
-                              borderRadius: "4px",
-                              color: "var(--text-primary)",
-                              display: "inline-block",
-                            }}
-                          >
-                            Email
-                          </Link>
-                          <Link
-                            href={`/call?phone=${encodeURIComponent(call.phone)}`}
-                            style={{
-                              fontSize: "12px",
-                              backgroundColor: "var(--primary)",
-                              padding: "4px 8px",
-                              borderRadius: "4px",
-                              color: "#ffffff",
-                              display: "inline-block",
-                            }}
-                          >
-                            Call
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        {col.label}
+                        {sortColumn === col.key && <span>{sortDirection === "asc" ? "▲" : "▼"}</span>}
+                      </div>
+                    </th>
+                  ))}
+                  <th style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>Status</th>
+                  <th style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>Summary</th>
+                  <th style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)", textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {processedCalls.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: "48px", textAlign: "center", color: "var(--text-secondary)" }}>
+                      {calls.length === 0
+                        ? "No calls found in VAPI. Make a call to your VAPI number to see records here."
+                        : "No records match the active filters."}
+                    </td>
+                  </tr>
+                ) : (
+                  processedCalls.map((call) => {
+                    const isExpanded = expandedCallId === call.id;
+                    const isOngoing = call.status === "ongoing";
 
-                    {/* Expanded Row Content */}
-                    {isExpanded && (
-                      <tr style={{ borderBottom: "1px solid var(--border-color)", backgroundColor: "rgba(255,255,255,0.02)" }}>
-                        <td colSpan={6} style={{ padding: "16px 24px" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
-                            {/* Transcript column */}
-                            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                              <h4 style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)" }}>
-                                Call Dialogue Transcript
-                              </h4>
-                              <div
-                                style={{
-                                  backgroundColor: "var(--bg-input)",
-                                  border: "1px solid var(--border-color)",
-                                  padding: "12px",
-                                  borderRadius: "var(--radius)",
-                                  fontSize: "13px",
-                                  fontFamily: "var(--font-geist-mono)",
-                                  whiteSpace: "pre-wrap",
-                                  maxHeight: "220px",
-                                  overflowY: "auto",
-                                  color: "var(--text-primary)",
-                                  lineHeight: "1.5",
-                                }}
-                              >
-                                {call.transcript}
-                              </div>
+                    return (
+                      <React.Fragment key={call.id}>
+                        <tr
+                          onClick={() => setExpandedCallId((prev) => (prev === call.id ? null : call.id))}
+                          style={{
+                            borderBottom: isExpanded ? "none" : "1px solid var(--border-color)",
+                            cursor: "pointer",
+                            backgroundColor: isOngoing
+                              ? "rgba(16,185,129,0.06)"
+                              : isExpanded
+                              ? "rgba(255,255,255,0.02)"
+                              : "transparent",
+                          }}
+                          className="hover-row"
+                        >
+                          <td style={{ padding: "14px 16px", fontSize: "14px" }}>
+                            {mounted
+                              ? call.timestamp.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                              : ""}
+                          </td>
+                          <td style={{ padding: "14px 16px", fontSize: "14px", fontWeight: 600 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              {isOngoing && (
+                                <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#10b981", boxShadow: "0 0 6px #10b981", flexShrink: 0, animation: "pulse 1.5s infinite" }} />
+                              )}
+                              {call.phone}
                             </div>
-
-                            {/* Suggestion / Details Column */}
-                            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                              <div>
-                                <h4 style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)", marginBottom: "4px" }}>
-                                  AI Suggested Follow-up Response
-                                </h4>
-                                <div
+                          </td>
+                          <td style={{ padding: "14px 16px", fontSize: "14px" }}>{formatDuration(call.duration)}</td>
+                          <td style={{ padding: "14px 16px" }}>
+                            <span className={getStatusBadgeClass(call.status)}>
+                              {call.status.replace("-", " ")}
+                            </span>
+                          </td>
+                          <td style={{ padding: "14px 16px", fontSize: "14px", color: "var(--text-secondary)", maxWidth: "280px", whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}>
+                            {call.summary}
+                          </td>
+                          <td style={{ padding: "14px 16px", textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                              {/* Live listen button for ongoing calls */}
+                              {isOngoing && call.listenUrl && (
+                                <button
+                                  onClick={() =>
+                                    setListeningCall({
+                                      vapiCallId: call.vapiCallId || call.id,
+                                      callerPhone: call.phone,
+                                      listenUrl: call.listenUrl,
+                                      controlUrl: null,
+                                      startedAt: call.timestamp.toISOString(),
+                                    })
+                                  }
                                   style={{
-                                    backgroundColor: "rgba(138, 43, 226, 0.1)",
-                                    border: "1px solid var(--primary)",
-                                    padding: "12px",
-                                    borderRadius: "var(--radius)",
-                                    fontSize: "13px",
-                                    color: "var(--text-primary)",
-                                    lineHeight: "1.4",
+                                    fontSize: "12px",
+                                    backgroundColor: "#10b981",
+                                    color: "#fff",
+                                    padding: "4px 8px",
+                                    borderRadius: "4px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
                                   }}
                                 >
-                                  {call.suggestedReply}
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                  </svg>
+                                  Listen
+                                </button>
+                              )}
+                              <Link
+                                href={`/email?to=${encodeURIComponent(call.email)}&suggested=${encodeURIComponent(call.suggestedReply)}`}
+                                style={{ fontSize: "12px", backgroundColor: "var(--bg-input)", border: "1px solid var(--border-color)", padding: "4px 8px", borderRadius: "4px", color: "var(--text-primary)", display: "inline-block" }}
+                              >
+                                Email
+                              </Link>
+                              <Link
+                                href={`/call?phone=${encodeURIComponent(call.phone)}`}
+                                style={{ fontSize: "12px", backgroundColor: "var(--primary)", padding: "4px 8px", borderRadius: "4px", color: "#ffffff", display: "inline-block" }}
+                              >
+                                Call
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Expanded transcript row */}
+                        {isExpanded && (
+                          <tr style={{ borderBottom: "1px solid var(--border-color)", backgroundColor: "rgba(255,255,255,0.02)" }}>
+                            <td colSpan={6} style={{ padding: "16px 24px" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+                                {/* Transcript */}
+                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                  <h4 style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)" }}>
+                                    Call Dialogue Transcript
+                                  </h4>
+                                  <div
+                                    style={{
+                                      backgroundColor: "var(--bg-input)",
+                                      border: "1px solid var(--border-color)",
+                                      padding: "12px",
+                                      borderRadius: "var(--radius)",
+                                      fontSize: "13px",
+                                      fontFamily: "var(--font-geist-mono)",
+                                      whiteSpace: "pre-wrap",
+                                      maxHeight: "220px",
+                                      overflowY: "auto",
+                                      color: "var(--text-primary)",
+                                      lineHeight: "1.5",
+                                    }}
+                                  >
+                                    {call.transcript}
+                                  </div>
+                                  {/* Recording link */}
+                                  {call.recordingUrl && (
+                                    <a
+                                      href={call.recordingUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "var(--accent)",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                        textDecoration: "underline",
+                                      }}
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+                                      </svg>
+                                      Play Recording
+                                    </a>
+                                  )}
+                                </div>
+
+                                {/* Actions / suggestion */}
+                                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                                  <div>
+                                    <h4 style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)", marginBottom: "6px" }}>
+                                      AI Suggested Follow-up
+                                    </h4>
+                                    <div
+                                      style={{
+                                        backgroundColor: "rgba(138,43,226,0.1)",
+                                        border: "1px solid var(--primary)",
+                                        padding: "12px",
+                                        borderRadius: "var(--radius)",
+                                        fontSize: "13px",
+                                        color: "var(--text-primary)",
+                                        lineHeight: "1.4",
+                                      }}
+                                    >
+                                      {call.suggestedReply}
+                                    </div>
+                                  </div>
+
+                                  <div style={{ display: "flex", gap: "12px" }}>
+                                    <Link
+                                      href={`/email?to=${encodeURIComponent(call.email)}&suggested=${encodeURIComponent(call.suggestedReply)}`}
+                                      style={{ flex: 1, textAlign: "center", padding: "8px 12px", borderRadius: "var(--radius)", fontSize: "13px", backgroundColor: "var(--bg-input)", border: "1px solid var(--border-color)", color: "var(--text-primary)", fontWeight: 600 }}
+                                    >
+                                      Draft Email Reply
+                                    </Link>
+                                    <Link
+                                      href={`/call?phone=${encodeURIComponent(call.phone)}`}
+                                      style={{ flex: 1, textAlign: "center", padding: "8px 12px", borderRadius: "var(--radius)", fontSize: "13px", backgroundColor: "var(--primary)", color: "#ffffff", fontWeight: 600 }}
+                                    >
+                                      Callback
+                                    </Link>
+                                  </div>
+
+                                  {/* VAPI call ID badge */}
+                                  {call.vapiCallId && (
+                                    <div style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "monospace" }}>
+                                      VAPI ID: {call.vapiCallId}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
 
-                              <div style={{ display: "flex", gap: "12px", marginTop: "4px" }}>
-                                <Link
-                                  href={`/email?to=${encodeURIComponent(call.email)}&suggested=${encodeURIComponent(call.suggestedReply)}`}
-                                  style={{
-                                    flex: 1,
-                                    textAlign: "center",
-                                    padding: "8px 12px",
-                                    borderRadius: "var(--radius)",
-                                    fontSize: "13px",
-                                    backgroundColor: "var(--bg-input)",
-                                    border: "1px solid var(--border-color)",
-                                    color: "var(--text-primary)",
-                                    fontWeight: 600,
-                                  }}
-                                >
-                                  Draft Email Reply
-                                </Link>
-                                <Link
-                                  href={`/call?phone=${encodeURIComponent(call.phone)}`}
-                                  style={{
-                                    flex: 1,
-                                    textAlign: "center",
-                                    padding: "8px 12px",
-                                    borderRadius: "var(--radius)",
-                                    fontSize: "13px",
-                                    backgroundColor: "var(--primary)",
-                                    color: "#ffffff",
-                                    fontWeight: 600,
-                                  }}
-                                >
-                                  Direct Call Back
-                                </Link>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+        {/* Auto-refresh notice */}
+        <div style={{ textAlign: "center", fontSize: "11px", color: "var(--text-muted)" }}>
+          Dashboard auto-refreshes every 20 seconds from VAPI API · Polling interval: {POLL_INTERVAL_MS / 1000}s
+        </div>
       </div>
-    </div>
+
+      {/* Ongoing pulse + badge styles */}
+      <style>{`
+        .badge-ongoing {
+          background-color: rgba(16,185,129,0.15);
+          color: #10b981;
+          border: 1px solid rgba(16,185,129,0.4);
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
+    </>
   );
 }

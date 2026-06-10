@@ -22,13 +22,17 @@ class Call(Base):
     __tablename__ = "calls"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vapi_call_id = Column(String(100), unique=True, nullable=True, index=True)
     client_id = Column(UUID(as_uuid=True), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
     start_time = Column(DateTime(timezone=True), server_default=func.now())
     end_time = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     status = Column(String(50), default="ongoing")
+    ended_reason = Column(String(100), nullable=True)
     recording_url = Column(String(512), nullable=True)
     summary = Column(Text, nullable=True)
+    listen_url = Column(String(1024), nullable=True)
+    control_url = Column(String(1024), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

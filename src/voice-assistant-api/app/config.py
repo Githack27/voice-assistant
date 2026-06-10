@@ -11,11 +11,7 @@ class Settings(BaseSettings):
     vapi_api_key: Optional[str] = None
     vapi_secret_token: Optional[str] = None
     vapi_phone_number_id: Optional[str] = None
-
-    # Twilio settings
-    twilio_account_sid: Optional[str] = None
-    twilio_auth_token: Optional[str] = None
-    twilio_phone_number: Optional[str] = None
+    vapi_assistant_id: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parent.parent / ".env",

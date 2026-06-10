@@ -14,6 +14,11 @@ services:
       - ./voice-assistant-database/schema/tables.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro
       - ./voice-assistant-database/functions/functions.sql:/docker-entrypoint-initdb.d/02-functions.sql:ro
       - ./voice-assistant-database/triggers/triggers.sql:/docker-entrypoint-initdb.d/03-triggers.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   api:
     build:
@@ -25,10 +30,20 @@ services:
       - ./voice-assistant-api/.env
     environment:
       - DATABASE_URL=postgresql://postgres@db:5432/voice_assistant
+      - HOST=0.0.0.0
+      - PORT=8000
+      - NODE_ENV=production
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   webapp:
     build:

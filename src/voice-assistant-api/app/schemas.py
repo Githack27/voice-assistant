@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from uuid import UUID
 
@@ -59,6 +59,7 @@ class VoicemailResponse(VoicemailBase):
 # Call schemas
 class CallBase(BaseModel):
     status: str = "ongoing"
+    ended_reason: Optional[str] = None
     recording_url: Optional[str] = None
     summary: Optional[str] = None
 
@@ -69,15 +70,19 @@ class CallUpdate(BaseModel):
     end_time: Optional[datetime] = None
     duration_seconds: Optional[int] = None
     status: Optional[str] = None
+    ended_reason: Optional[str] = None
     recording_url: Optional[str] = None
     summary: Optional[str] = None
 
 class CallResponse(CallBase):
     id: UUID
+    vapi_call_id: Optional[str] = None
     client_id: Optional[UUID] = None
     start_time: datetime
     end_time: Optional[datetime] = None
     duration_seconds: Optional[int] = None
+    listen_url: Optional[str] = None
+    control_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -97,7 +102,7 @@ class CallDetailResponse(CallResponse):
 # Settings schemas
 class SettingBase(BaseModel):
     key: str
-    value: dict
+    value: Any
 
 class SettingCreate(SettingBase):
     pass

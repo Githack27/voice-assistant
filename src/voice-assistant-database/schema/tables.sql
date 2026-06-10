@@ -14,13 +14,17 @@ CREATE TABLE IF NOT EXISTS clients (
 -- Table: calls
 CREATE TABLE IF NOT EXISTS calls (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    vapi_call_id VARCHAR(100) UNIQUE,
     client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
     start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP WITH TIME ZONE,
     duration_seconds INTEGER,
     status VARCHAR(50) DEFAULT 'ongoing', -- 'ongoing', 'completed', 'missed', 'voicemail'
+    ended_reason VARCHAR(100),
     recording_url VARCHAR(512),
     summary TEXT,
+    listen_url VARCHAR(1024),
+    control_url VARCHAR(1024),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

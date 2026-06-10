@@ -8,7 +8,7 @@ from app import models, schemas
 
 router = APIRouter(prefix="/api/calls", tags=["calls"])
 
-@router.get("", response_model=List[schemas.CallResponse])
+@router.get("", response_model=List[schemas.CallDetailResponse])
 def get_calls(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     calls = db.query(models.Call).order_by(models.Call.start_time.desc()).offset(skip).limit(limit).all()
     return calls
